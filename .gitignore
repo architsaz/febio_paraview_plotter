@@ -1,0 +1,9 @@
+/archive
+/figs
+/stat
+table
+*.csv
+*.txt
+stat.elem/
+*.png
+*.csv
