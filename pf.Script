@@ -1,0 +1,37 @@
+import numpy as np
+from vtk.numpy_interface import dataset_adapter as dsa
+from vtk.numpy_interface import algorithms as algs
+
+# Get input and output
+input0 = self.GetInput()
+output = self.GetOutput()
+
+# Wrap input and output using dataset_adapter
+idata = dsa.WrapDataObject(input0)
+odata = dsa.WrapDataObject(output)
+
+# Copy original PointData
+for name in idata.PointData.keys():
+    odata.PointData.append(idata.PointData[name], name)
+
+# Copy original CellData
+for name in idata.CellData.keys():
+    odata.CellData.append(idata.CellData[name], name)
+
+# Compute force = area * stress if both fields are available
+if 'area' in idata.CellData.keys() and 'Shear_Von_Mises_Stress' in idata.CellData.keys() and 'relems' in idata.CellData.keys():
+    area = idata.CellData['area']
+    stress = idata.CellData['Shear_Von_Mises_Stress']
+    relems = idata.CellData['relems']
+    force_ane = []
+    for ele in range(len(stress)):
+        if relems [ele] in [16,8,4]:
+            force_ane.append(stress[ele]*area[ele])
+    force_ane = np.asarray(force_ane)
+    upper_quartile = np.quantile(force_ane, 0.75)
+    force_filtered = np.zeros(len(stress))  # Initializes an array of zeros with the same length
+    for ele in range(len(stress)):
+        if stress[ele]*area[ele] > upper_quartile:
+            force_filtered[ele] = stress[ele]
+
+    odata.CellData.append(force_filtered, f'von_UQ_{upper_quartile:e}')
