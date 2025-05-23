@@ -1,8 +1,8 @@
 #!/bin/bash
 
 code_name=pvpng_autoview.py
-# machines=("ishtar" "loki" "hades" "attila" "marduk" "heise")
-machines=("ishtar")
+machines=("ishtar" "loki" "hades" "attila" "marduk" "heise")
+# machines=("ishtar")
 
 list_dir=/dagon1/achitsaz/runfebio/accept_runs_cases.txt
 use_test_case=true  # Set to false to read from file
@@ -20,10 +20,10 @@ fi
 # Generate 4 jobs per case
 jobs=()
 for case in "${raw_cases[@]}"; do
-    jobs+=("$case 1 colormap_png.json 8 ")
-    jobs+=("$case 2 colormap_png.json 8")
-    jobs+=("$case 1 colormap_anim.json 120 --anim")
-    jobs+=("$case 2 colormap_anim.json 120 --anim")
+    jobs+=("$case 1 colormap_png.json 4 ")
+    jobs+=("$case 2 colormap_png.json 4")
+    jobs+=("$case 1 colormap_anim.json 90 --anim")
+    jobs+=("$case 2 colormap_anim.json 90 --anim")
 done
 
 total_jobs=${#jobs[@]}
@@ -39,11 +39,11 @@ run_case_on_machine () {
     shift 5
     local extra_opts=$@
 
-    local pvpython_dir=/dagon1/achitsaz/app/ParaView-5.12.0-MPI-Linux-Python3.10-x86_64/bin/pvpython
+    local pvpython_dir=/dagon1/achitsaz/app/ParaView-5.13.3-osmesa-MPI-Linux-Python3.10-x86_64/bin/pvpython
     local case_dir=/dagon1/achitsaz/runfebio
     local code_dir=/dagon1/achitsaz/FEBio/autopng
 
-    local command="cd $case_dir/$case_id/pst.$msa/ && nohup $pvpython_dir $code_dir/$code_name stress_analysis_0.vtk ../msa.$msa/checkinput_0.vtk $code_dir/$colormap $nframes --outdir ./render --pf $code_dir/pf.Script $extra_opts > render.log 2>&1 &"
+    local command="cd $case_dir/$case_id/pst.$msa/ && unset DISPLAY && nohup $pvpython_dir $code_dir/$code_name stress_analysis_0.vtk ../msa.$msa/checkinput_0.vtk $code_dir/$colormap $nframes --outdir ./render --pf $code_dir/pf.Script $extra_opts > render.log 2>&1 &"
 
     echo "-> Dispatching: $case_id with pst.$msa and $colormap on $machine"
 

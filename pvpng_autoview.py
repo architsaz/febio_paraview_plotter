@@ -250,6 +250,7 @@ for data_type, field_name in all_fields:
             view.CameraPosition = cam_pos
             view.CameraFocalPoint = focal
             view.CameraViewUp = axis_vector  # consistent roll
+            view.CameraParallelProjection = 1
 
 
             Render()
