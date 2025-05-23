@@ -29,6 +29,8 @@ parser.add_argument("n_frames", type=int, help="Number of frames to generate.")
 # Optional flags
 parser.add_argument("--anim", action="store_true", help="If set, save animation instead of individual frame images.")
 parser.add_argument("--outdir", type=str, default=None, help="Optional output directory for saved results.")
+parser.add_argument("--cam", dest="CameraView", type=str, default=None, help="Optional to define camera view in JSON format for rendering picture (NOT anim).")
+parser.add_argument("--case", dest="case_name", type=str, default=None, help="Required for cameraview option, specified case_name inside camera view file.")
 
 # Optional programmable filter
 parser.add_argument(
@@ -52,7 +54,17 @@ output_dir = args.outdir
 # Programmable filter logic
 used_pf = args.programmable_filter is not None
 pf_script_path = args.programmable_filter if used_pf else None
-
+used_cameraview = args.CameraView is not None
+cameraview_path = args.CameraView if used_cameraview else None
+if save_anim and used_cameraview :
+    print(f"Error: Camera View files option can just used for the rendering picture not anim.", file=sys.stderr)
+    exit()
+used_casename = args.case_name is not None
+case_name = args.case_name if used_casename else None
+print("case_name :",case_name)
+if used_cameraview and not case_name :
+    print(f"Error: To scpecified the camera view propertics in JSON file, case_name required.", file=sys.stderr)
+    exit()  
 # Check the existence of files 
 try:
     with open(vtk_dir, "r") as file:
@@ -75,8 +87,17 @@ except FileNotFoundError:
     exit()
 except json.JSONDecodeError:
     print(f"Error: Failed to parse JSON in {colormap_dir}.", file=sys.stderr)
-    exit()   
-   
+    exit()
+if used_cameraview:       
+    try:
+        with open(cameraview_path, "r") as f:
+            cameraview_config = json.load(f)
+    except FileNotFoundError:
+        print(f"Error: {cameraview_path} not found.", file=sys.stderr)
+        exit()
+    except json.JSONDecodeError:
+        print(f"Error: Failed to parse JSON in {cameraview_path}.", file=sys.stderr)
+        exit()    
 # Output directory
 if not output_dir:
     output_dir = vtk_dir.replace(".vtk", "")
@@ -97,33 +118,36 @@ appended.UpdatePipeline()
 cell_centers = CellCenters(Input=appended)
 cell_centers.UpdatePipeline()
 
-# Get point data
-centroids = servermanager.Fetch(cell_centers).GetPoints()
-centroids_np = np.array([centroids.GetPoint(i) for i in range(centroids.GetNumberOfPoints())])
-# Get 'relems' array
-relems_array = servermanager.Fetch(appended).GetCellData().GetArray("relems")
-relems_np = np.array([relems_array.GetValue(i) for i in range(relems_array.GetNumberOfTuples())])
+if not used_cameraview:
+    # Get point data
+    centroids = servermanager.Fetch(cell_centers).GetPoints()
+    centroids_np = np.array([centroids.GetPoint(i) for i in range(centroids.GetNumberOfPoints())])
+    # Get 'relems' array
+    relems_array = servermanager.Fetch(appended).GetCellData().GetArray("relems")
+    relems_np = np.array([relems_array.GetValue(i) for i in range(relems_array.GetNumberOfTuples())])
 
-dome_centroid = centroids_np[relems_np == 16].mean(axis=0)
-body_centroid = centroids_np[relems_np == 8].mean(axis=0)
-neck_centroid = centroids_np[relems_np == 4].mean(axis=0)
+    dome_centroid = centroids_np[relems_np == 16].mean(axis=0)
+    body_centroid = centroids_np[relems_np == 8].mean(axis=0)
+    neck_centroid = centroids_np[relems_np == 4].mean(axis=0)
 
-focal = body_centroid
-axis_vector = dome_centroid - neck_centroid
-axis_vector /= np.linalg.norm(axis_vector)
+    focal = body_centroid
+    axis_vector = dome_centroid - neck_centroid
+    axis_vector /= np.linalg.norm(axis_vector)
 
-# Choose an arbitrary vector not parallel to axis
-v = np.array([1, 0, 0])
-if np.allclose(np.cross(axis_vector, v), 0):
-    v = np.array([0, 1, 0])
-    
-# Orthogonal vector to axis
-u = np.cross(axis_vector, v)
-u = u / np.linalg.norm(u)
+    # Choose an arbitrary vector not parallel to axis
+    v = np.array([1, 0, 0])
+    if np.allclose(np.cross(axis_vector, v), 0):
+        v = np.array([0, 1, 0])
+        
+    # Orthogonal vector to axis
+    u = np.cross(axis_vector, v)
+    u = u / np.linalg.norm(u)
 
-# Camera radius (e.g., 1.5 × aneurysm size)
-radius = 1.5 * np.linalg.norm(dome_centroid - neck_centroid)
-base_vector = radius * u
+    # Camera radius (e.g., 1.5 × aneurysm size)
+    radius = 1.5 * np.linalg.norm(dome_centroid - neck_centroid)
+    base_vector = radius * u
+
+# added programmable Filter option to the pipeline of Paraview
 if used_pf:
     pf = ProgrammableFilter(Input=appended)
     if os.path.exists(pf_script_path):
@@ -202,26 +226,37 @@ for data_type, field_name in all_fields:
     except Exception as e:
         print(f"Skipping {field_name} ({data_type}) due to error: {e}")
         continue
-    
-    for i in range(n_frames):
-        theta = 2 * math.pi * i / n_frames
-        rot_axis = axis_vector
-        cos_t = math.cos(theta)
-        sin_t = math.sin(theta)
-        cross = np.cross(rot_axis, base_vector)
-        dot = np.dot(rot_axis, base_vector)
-        rotated = base_vector * cos_t + cross * sin_t + rot_axis * dot * (1 - cos_t)
+    if used_cameraview:
+        for name, params in cameraview_config.get(case_name).items():
+            view.CameraPosition = params["CameraPosition"]
+            view.CameraFocalPoint = params["CameraFocalPoint"]
+            view.CameraViewUp = params["CameraViewUp"]
+            view.CameraParallelScale = params["CameraParallelScale"]
+            Render()
+            safe_field = sanitize_filename(field_name)
+            img_file = os.path.join(output_dir, f"{safe_field}_{name}.png")
+            SaveScreenshot(img_file, view, ImageResolution=[3840, 2880])
 
-        cam_pos = focal + rotated
-        view.CameraPosition = cam_pos
-        view.CameraFocalPoint = focal
-        view.CameraViewUp = axis_vector  # consistent roll
+    else:    
+        for i in range(n_frames):
+            theta = 2 * math.pi * i / n_frames
+            rot_axis = axis_vector
+            cos_t = math.cos(theta)
+            sin_t = math.sin(theta)
+            cross = np.cross(rot_axis, base_vector)
+            dot = np.dot(rot_axis, base_vector)
+            rotated = base_vector * cos_t + cross * sin_t + rot_axis * dot * (1 - cos_t)
+
+            cam_pos = focal + rotated
+            view.CameraPosition = cam_pos
+            view.CameraFocalPoint = focal
+            view.CameraViewUp = axis_vector  # consistent roll
 
 
-        Render()
-        safe_field = sanitize_filename(field_name)
-        img_file = os.path.join(output_dir, f"{safe_field}_view_{i:03d}.png")
-        SaveScreenshot(img_file, view, ImageResolution=[3840, 2880])
+            Render()
+            safe_field = sanitize_filename(field_name)
+            img_file = os.path.join(output_dir, f"{safe_field}_view_{i:03d}.png")
+            SaveScreenshot(img_file, view, ImageResolution=[3840, 2880])
     if save_anim:
         bash_command = "/dagon1/achitsaz/app/ffmpeg-7.0.2-amd64-static/ffmpeg -framerate 24 -i "
         bash_command = bash_command+f"{output_dir}/{safe_field}_view_%03d.png"+" -c:v libx264 -pix_fmt yuv420p "+f"{output_dir}/{safe_field}.mp4"
