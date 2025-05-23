@@ -61,7 +61,6 @@ if save_anim and used_cameraview :
     exit()
 used_casename = args.case_name is not None
 case_name = args.case_name if used_casename else None
-print("case_name :",case_name)
 if used_cameraview and not case_name :
     print(f"Error: To scpecified the camera view propertics in JSON file, case_name required.", file=sys.stderr)
     exit()  
